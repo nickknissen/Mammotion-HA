@@ -12,14 +12,15 @@ from homeassistant.components.lawn_mower import (
     LawnMowerEntity,
     LawnMowerEntityFeature,
 )
-from homeassistant.const import ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.const import ATTR_ENTITY_ID, Platform
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from pymammotion.data.model.report_info import DeviceData, ReportData
 from pymammotion.utility.constant.device_constant import WorkMode
 from pymammotion.utility.device_type import DeviceType
@@ -237,6 +238,48 @@ class MammotionLawnMowerEntity(MammotionBaseEntity, LawnMowerEntity):
         """Initialize the Lawn Mower."""
         super().__init__(coordinator, "mower")
         self._attr_name = None  # main feature of device
+        self._map_entity_id: str | None = None
+
+    @callback
+    def _handle_map_state_change(self, _event) -> None:  # noqa: ANN001 - HA Event[...] is verbose
+        """Map image entity ticked — cache-bust the picture URL."""
+        self.async_write_ha_state()
+
+    def _subscribe_map_entity(self) -> None:
+        """Resolve the map image entity and subscribe so the thumbnail refreshes."""
+        # The map entity's unique_id follows MammotionBaseEntity's pattern
+        # ``<unique_name>_map``; if it isn't registered yet (first boot before
+        # image.py has loaded) ``entity_picture`` stays None and we catch up
+        # on the next coordinator tick.
+        registry = er.async_get(self.hass)
+        self._map_entity_id = registry.async_get_entity_id(
+            Platform.IMAGE, DOMAIN, f"{self.coordinator.unique_name}_map"
+        )
+        if self._map_entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self._map_entity_id],
+                    self._handle_map_state_change,
+                )
+            )
+
+    @property
+    def entity_picture(self) -> str | None:
+        """Serve the live map thumbnail inline in the more-info card.
+
+        Returns the image-proxy URL for the device's map entity, with a
+        ``?t=`` cache-buster derived from ``image_last_updated`` so the
+        dashboard doesn't stick to a stale frame.  ``None`` pre-registration.
+        """
+        if not self._map_entity_id:
+            return None
+        state = self.hass.states.get(self._map_entity_id)
+        if state is None:
+            return f"/api/image_proxy/{self._map_entity_id}"
+        # ImageEntity's state value is the ISO timestamp of the last change,
+        # which is exactly what we want as a cache key.
+        return f"/api/image_proxy/{self._map_entity_id}?t={state.state}"
 
     @property
     def rpt_dev_status(self) -> DeviceData:
@@ -493,6 +536,8 @@ class MammotionLawnMowerEntity(MammotionBaseEntity, LawnMowerEntity):
     async def async_added_to_hass(self) -> None:
         """Register callbacks and verify device linkage after HA setup."""
         await super().async_added_to_hass()
+
+        self._subscribe_map_entity()
 
         # Ensure the entity is actually linked to a device
         if not self.coordinator.device_name:
