@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import datetime
 import json
+import math
 from abc import abstractmethod
 from collections.abc import Mapping
 from datetime import timedelta
@@ -66,6 +68,7 @@ from webrtc_models import RTCIceServer
 
 from .agora_api import SERVICE_IDS, AgoraAPIClient, AgoraResponse
 from .config import MammotionConfigStore
+from .map_renderer import BBox, render_base_png
 from .const import (
     COMMAND_EXCEPTIONS,
     CONF_ACCOUNTNAME,
@@ -1374,6 +1377,14 @@ class MammotionDeviceVersionUpdateCoordinator(
 class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
     """Class to manage fetching mammotion data."""
 
+    # Rendered map cache — consumed by MammotionMapImage.  Only populated once
+    # the first map sync has fetched a complete ``HashList`` (no missing
+    # hashes).  Image entities guard on these being non-None.
+    map_base_png_bytes: bytes | None = None
+    map_base_bbox: BBox | None = None
+    map_last_render: datetime.datetime | None = None
+    _last_map_content_hash: int | None = None
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -1429,7 +1440,100 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
         except (ConcurrentRequestError, NoTransportAvailableError):
             pass
 
-        return self.manager.get_device_by_name(self.device_name).mower_state
+        mowing_device = self.manager.get_device_by_name(self.device_name)
+        await self._async_refresh_map_image(mowing_device)
+        return mowing_device.mower_state
+
+    async def _async_refresh_map_image(self, mowing_device: MowerDevice) -> None:
+        """Re-render the map PNG if the HashList content has changed.
+
+        Runs the Pillow render in an executor to keep the event loop free.
+        Rendering is skipped while the HashList is still being assembled
+        (``missing_hashlist()`` non-empty) so we never serve a half-drawn map.
+        """
+        hash_list = mowing_device.map
+        # Render when *any* renderable layer has content.  We can't rely on
+        # ``hash_list.hashlist`` being populated — root_hash_lists is only
+        # filled when the device sends a fresh hash manifest, but the
+        # per-type dicts can be populated from prior sync cycles (and from
+        # the generated geojson cache path) even when the manifest isn't.
+        try:
+            has_content = any(
+                (
+                    hash_list.area,
+                    hash_list.obstacle,
+                    hash_list.dump,
+                    hash_list.path,
+                    hash_list.current_mow_path,
+                )
+            )
+            if not has_content:
+                return
+            # If we *do* have an in-flight manifest, avoid rendering while
+            # frames are still arriving — otherwise the image flickers every
+            # tick until the saga completes.
+            if hash_list.root_hash_lists and hash_list.missing_hashlist():
+                return
+        except Exception:  # noqa: BLE001 - defensive: mashumaro can fail
+            return
+
+        content_hash = self._compute_map_content_hash(hash_list)
+        if content_hash == self._last_map_content_hash:
+            return
+
+        snapshot = copy.deepcopy(hash_list)
+        rtk_xy: tuple[float, float] = (0.0, 0.0)
+        dock_xy: tuple[float, float] | None = None
+        dock_rotation = 0.0
+        try:
+            dock = mowing_device.location.dock
+            # ``location.dock.latitude`` / ``.longitude`` are misnamed — they
+            # actually hold ENU metres, not lat/lng.  Confirmed by
+            # pymammotion/data/mower_state_manager.py:364 which feeds them
+            # directly into ``enu_to_lla(east, north)``.  So we can use them
+            # as-is in the same ENU frame as the polygon points; no
+            # projection needed.
+            if dock.latitude or dock.longitude:
+                dock_xy = (float(dock.latitude), float(dock.longitude))
+                dock_rotation = float(dock.rotation)
+        except Exception as err:  # noqa: BLE001 - positioning is best-effort
+            LOGGER.debug("Skipping dock overlay: %s", err)
+
+        try:
+            png, bbox = await self.hass.async_add_executor_job(
+                render_base_png, snapshot, rtk_xy, dock_xy, dock_rotation
+            )
+        except Exception as err:  # noqa: BLE001 - render failures must not brick updates
+            LOGGER.warning("Map render failed for %s: %s", self.device_name, err)
+            return
+
+        if png is None or bbox is None:
+            return
+
+        self.map_base_png_bytes = png
+        self.map_base_bbox = bbox
+        self.map_last_render = datetime.datetime.now(datetime.UTC)
+        self._last_map_content_hash = content_hash
+
+    @staticmethod
+    def _compute_map_content_hash(hash_list: Any) -> int:
+        """Stable content fingerprint over the static hash-keyed layers.
+
+        Cheap: uses the sorted hash-ID tuples as a proxy rather than hashing
+        every coordinate.  If any area/obstacle/dump/mow-path hash is added
+        or removed, the fingerprint changes and we re-render.  Point-level
+        changes within the same hash set are rare for a settled map and are
+        skipped intentionally to keep this O(hash count).
+        """
+        return hash(
+            (
+                tuple(sorted(hash_list.area.keys())),
+                tuple(sorted(hash_list.obstacle.keys())),
+                tuple(sorted(hash_list.dump.keys())),
+                tuple(sorted(hash_list.path.keys())),
+                tuple(sorted(hash_list.current_mow_path.keys())),
+            )
+        )
 
     async def _async_setup(self) -> None:
         """Setup coordinator with initial call to get map data."""
