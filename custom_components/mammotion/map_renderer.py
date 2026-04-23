@@ -44,31 +44,33 @@ MARGIN_FRAC = 0.05  # pad bbox by 5% of its own span
 
 BG_COLOR = (245, 245, 245, 255)
 
-# Mirrors pymammotion/data/model/generate_geojson.py so the raster matches the
-# GeoJSON card visually.  Alpha comes from the original fillOpacity / opacity.
-AREA_FILL = (0, 100, 0, 77)          # darkgreen @ 30%
-AREA_STROKE = (0, 128, 0, 204)       # green    @ 80%
-OBSTACLE_FILL = (255, 140, 0, 102)   # darkorange @ 40%
-OBSTACLE_STROKE = (255, 77, 0, 230)  # #FF4D00   @ 90%
-# Vision-detected zones (Luba 2 Vision / Pro) — separate from the user-drawn
-# obstacle polygons so they're visually distinguishable on the map.
-VISUAL_OBSTACLE_FILL = (200, 0, 0, 110)      # red @ 43% — vision-detected no-go
-VISUAL_OBSTACLE_STROKE = (139, 0, 0, 230)    # darkred
-VISUAL_SAFETY_FILL = (255, 235, 59, 90)      # amber @ 35% — vision safety buffer
-VISUAL_SAFETY_STROKE = (255, 193, 7, 220)    # amber darker
-DUMP_FILL = (255, 215, 0, 90)        # gold-ish fill
-DUMP_STROKE = (184, 134, 11, 200)    # darkgoldenrod
-PATH_OUTER = (255, 255, 255, 255)    # planned mow stripes
-PATH_CENTER = (105, 105, 105, 255)   # #696969
-LINE_COLOR = (255, 165, 0, 220)      # breakpoint/resume line (orange)
+# Colors mirror the Mammotion Android app's main map view (res/values/colors.xml
+# and MapColorTag.java in the decompiled APK) so the HA image matches what the
+# user sees in the app.  Android ARGB hex → (R, G, B, A) per Pillow convention.
+AREA_FILL = (59, 191, 97, 77)         # map_area            #4d3bbf61
+AREA_STROKE = (59, 191, 97, 255)      # map_area_line       #ff3bbf61
+OBSTACLE_FILL = (255, 149, 20, 128)   # map_no_entry_zone   #80ff9514 — user-drawn "excluded"
+OBSTACLE_STROKE = (255, 149, 20, 230) #                       — solid-ish variant for visibility
+# Luba 2 Vision / Pro vision-detected zones.  The Android app uses the same
+# restricted-zone palette for these as for user-drawn no-entry zones, slightly
+# more saturated to distinguish auto-generated from user content.
+VISUAL_OBSTACLE_FILL = (204, 119, 0, 204)  # Map_Color_Fill_CC7700_80  #CCCC7700
+VISUAL_OBSTACLE_STROKE = (204, 119, 0, 255)
+VISUAL_SAFETY_FILL = (0, 122, 255, 128)    # map_no_stop_zone  #80007aff — safety buffer
+VISUAL_SAFETY_STROKE = (0, 122, 255, 230)
+DUMP_FILL = (186, 186, 186, 128)     # map_channel         #80bababa — clippings/channel
+DUMP_STROKE = (139, 139, 139, 220)   # Map_Color_Line_CAR_Line_Grey #8B8B8B
+PATH_OUTER = (255, 255, 255, 204)    # map_plan_path       #ccffffff
+PATH_CENTER = (105, 105, 105, 255)   # darkened centerline to match geojson card
+LINE_COLOR = (20, 95, 242, 220)      # border_line         #145ff2 — breakpoint/resume
 DOCK_FILL = (211, 211, 211, 255)     # lightgray
 DOCK_STROKE = (80, 80, 80, 255)
 RTK_FILL = (128, 0, 128, 255)        # purple
 RTK_STROKE = (50, 0, 50, 255)
-ROBOT_FILL = (0, 120, 255, 255)      # bright blue
+ROBOT_FILL = (0, 122, 255, 255)      # Map_Color_Line_CAR_Line  #007AFF
 ROBOT_STROKE = (0, 0, 0, 255)
-DYNAMICS_LINE_COLOR = (0, 230, 118, 255)  # #00E676 — "mowed so far"
-MOWED_SWATHE_COLOR = (76, 175, 80, 160)   # #4CAF50 alpha — filled-in mowed area
+DYNAMICS_LINE_COLOR = (255, 0, 0, 255)    # Map_Color_Line_Planning_Progress_lines #FF0000
+MOWED_SWATHE_COLOR = (29, 140, 125, 160)  # Map_Color_Line_Planning_Progress_lines_Area #1D8C7D
 
 # Stroke widths in metres (converted to pixels per render).  Using world units
 # means a 10 m yard and a 100 m yard render with visually-consistent stroke
