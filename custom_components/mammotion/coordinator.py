@@ -1490,11 +1490,21 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
             # ``location.dock.latitude`` / ``.longitude`` are misnamed — they
             # actually hold ENU metres, not lat/lng.  Confirmed by
             # pymammotion/data/mower_state_manager.py:364 which feeds them
-            # directly into ``enu_to_lla(east, north)``.  So we can use them
-            # as-is in the same ENU frame as the polygon points; no
-            # projection needed.
+            # directly into ``enu_to_lla(...)``.
+            #
+            # Axis mapping verified empirically by cross-checking against
+            # ``location.device`` lat/lng deltas from the RTK origin:
+            #   dock.longitude → east (x)
+            #   dock.latitude  → north (y)
+            # This is the opposite of what the field names suggest and
+            # opposite of what PyMammotion's call site implies — its
+            # ``enu_to_lla`` swaps east/north inside the rotation matrix
+            # relative to the parameter-name convention, so calls that
+            # look semantically wrong by name happen to produce correct
+            # lat/lng.  We consume the raw values, so we need the real
+            # axis assignment.
             if dock.latitude or dock.longitude:
-                dock_xy = (float(dock.latitude), float(dock.longitude))
+                dock_xy = (float(dock.longitude), float(dock.latitude))
                 dock_rotation = float(dock.rotation)
         except Exception as err:  # noqa: BLE001 - positioning is best-effort
             LOGGER.debug("Skipping dock overlay: %s", err)
@@ -1508,7 +1518,34 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
             return
 
         if png is None or bbox is None:
+            LOGGER.info(
+                "Map render skipped for %s: no renderable geometry "
+                "(area=%d obstacle=%d dump=%d path=%d mow_path=%d)",
+                self.device_name,
+                len(snapshot.area),
+                len(snapshot.obstacle),
+                len(snapshot.dump),
+                len(snapshot.path),
+                len(snapshot.current_mow_path),
+            )
             return
+
+        LOGGER.info(
+            "Map rendered for %s: bbox=(%.2f,%.2f)→(%.2f,%.2f) width=%.1fm "
+            "height=%.1fm dock=%s layers area=%d obstacle=%d dump=%d path=%d "
+            "mow_path=%d dynamics_line=%d png=%dB",
+            self.device_name,
+            bbox.xmin, bbox.ymin, bbox.xmax, bbox.ymax,
+            bbox.width, bbox.height,
+            dock_xy,
+            len(snapshot.area),
+            len(snapshot.obstacle),
+            len(snapshot.dump),
+            len(snapshot.path),
+            len(snapshot.current_mow_path),
+            len(snapshot.dynamics_line),
+            len(png),
+        )
 
         self.map_base_png_bytes = png
         self.map_base_bbox = bbox

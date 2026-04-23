@@ -60,6 +60,7 @@ RTK_STROKE = (50, 0, 50, 255)
 ROBOT_FILL = (0, 120, 255, 255)      # bright blue
 ROBOT_STROKE = (0, 0, 0, 255)
 DYNAMICS_LINE_COLOR = (0, 230, 118, 255)  # #00E676 — "mowed so far"
+MOWED_SWATHE_COLOR = (76, 175, 80, 160)   # #4CAF50 alpha — filled-in mowed area
 
 # Stroke widths in metres (converted to pixels per render).  Using world units
 # means a 10 m yard and a 100 m yard render with visually-consistent stroke
@@ -71,6 +72,9 @@ STROKE_PATH_CENTER_M = 0.08
 STROKE_DOCK_M = 0.10
 STROKE_RTK_M = 0.10
 STROKE_DYNAMICS_M = 0.30
+# Approximate mower cutting swathe in metres — wide enough that the
+# accumulated position track visually fills the mowed area like the app.
+STROKE_MOWED_SWATHE_M = 0.40
 
 # Marker radii in metres.
 RADIUS_DOCK_M = 0.30
@@ -427,6 +431,7 @@ def compose_with_position(
     y: float | None,
     heading_deg: float | None,
     dynamics_line: list["CommDataCouple"] | None = None,
+    mowed_track: list[tuple[float, float]] | None = None,
 ) -> bytes:
     """Composite a robot marker (and optional mowed polyline) onto *base_png*.
 
@@ -434,8 +439,10 @@ def compose_with_position(
       frame as the base map.  Any may be ``None`` to suppress the marker
       (e.g. pre-fix state).  Position is clamped to the bbox edge if outside.
     * ``dynamics_line`` — the live ``HashList.dynamics_line`` list.  Drawn as
-      a polyline under the marker, so the user sees planned (white/dark)
-      vs. mowed-so-far (green).
+      a narrow polyline in bright green on top of the swathe.
+    * ``mowed_track`` — accumulated ``(x, y)`` positions from the entity's
+      rolling buffer.  Drawn first, at mower-cutting-width so the visited
+      area fills in like the Mammotion app.
 
     Runs on the event loop — keep it cheap: one decode + one alpha-composite +
     one re-encode.  For typical yard complexity (hundreds of dynamics points)
@@ -447,9 +454,20 @@ def compose_with_position(
 
     project, scale = _projector(bbox, img.size)
 
-    # Dynamics line underneath.
+    # Mowed swathe (bottom-most overlay) — wide stroke at cutting width so
+    # the visited area visibly fills in.
+    if mowed_track and len(mowed_track) >= 2:
+        swathe_pts = [project(mx, my) for mx, my in mowed_track]
+        draw.line(
+            swathe_pts,
+            fill=MOWED_SWATHE_COLOR,
+            width=_m_to_px(scale, STROKE_MOWED_SWATHE_M, MIN_STROKE_PX + 2),
+            joint="curve",
+        )
+
+    # Dynamics line on top of the swathe — narrower, brighter, traces the
+    # live path from the device itself.
     if dynamics_line and len(dynamics_line) >= 2:
-        # Snapshot (copy) because the caller may be racing with the state reducer.
         dyn_pts = [(p.x, p.y) for p in dynamics_line]
         px_pts = [project(px_, py_) for px_, py_ in dyn_pts]
         draw.line(

@@ -146,6 +146,21 @@ def test_compose_with_position_dynamics_line_changes_output() -> None:
     assert out_no_dyn != out_with_dyn
 
 
+def test_compose_with_position_mowed_track_changes_output() -> None:
+    """Accumulated ``mowed_track`` should render a visible swathe."""
+    hl = _sample_hashlist()
+    png, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
+    out_bare = renderer.compose_with_position(
+        png, bbox, x=0.0, y=0.0, heading_deg=0.0
+    )
+    track = [(-4, -2), (-2, -2), (0, -2), (2, -2), (4, -2)]
+    out_track = renderer.compose_with_position(
+        png, bbox, x=0.0, y=0.0, heading_deg=0.0, mowed_track=track
+    )
+    assert out_track.startswith(renderer.PNG_MAGIC)
+    assert out_bare != out_track
+
+
 def test_position_outside_bbox_is_clamped() -> None:
     """Marker must stay on-canvas; dry-run the clamp helper + sanity-check compose."""
     hl = _sample_hashlist()
