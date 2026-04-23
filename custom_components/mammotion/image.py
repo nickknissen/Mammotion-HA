@@ -1,16 +1,19 @@
-"""Mammotion map image entity.
+"""Mammotion map image entities.
 
-Serves the rendered HashList as a slow-changing PNG, composited with the
-live robot marker and the mow-progress polyline on each report update.
+Two entities per mower, designed to be stacked via a Lovelace
+picture-elements card:
 
-Structure mirrors Home Assistant's Roborock ``image.py``:
+* :class:`MammotionMapImage` — the static base: mowing areas, obstacles,
+  planned mow path, dock and RTK markers.  Regenerates only when the
+  map geometry itself changes, so it stays stable while the mower is
+  actively mowing.
+* :class:`MammotionMowerPositionImage` — a transparent, same-sized PNG
+  containing only the live robot marker, mowed swathe, and dynamics
+  polyline.  Refreshes on the reporting coordinator (throttled).
 
-* dual inheritance ``MammotionBaseEntity + ImageEntity`` so the existing
-  coordinator wiring is reused
-* static base render lives on the coordinator (off-loop, PIL in an executor)
-* the entity only does the cheap composite + cache + change detection
-* ``_attr_image_last_updated`` is bumped only when output bytes change, so
-  the Lovelace picture card doesn't thrash on pixel-identical redraws
+The split keeps the base image rock-solid during mow sessions — earlier
+behaviour bundled both into a single entity whose composite redraw hit
+the event loop on every reporting tick.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from .coordinator import (
     MammotionReportUpdateCoordinator,
 )
 from .entity import MammotionBaseEntity
-from .map_renderer import PLACEHOLDER_PNG, compose_with_position
+from .map_renderer import EMPTY_OVERLAY_PNG, PLACEHOLDER_PNG, render_overlay_png
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,19 +60,62 @@ async def async_setup_entry(
     entry: MammotionConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up one map image per mower."""
-    async_add_entities(
-        MammotionMapImage(
-            mower.map_coordinator, mower.reporting_coordinator, hass
+    """Set up the static map and the mower-position overlay per mower."""
+    entities: list[ImageEntity] = []
+    for mower in entry.runtime_data.mowers:
+        entities.append(MammotionMapImage(mower.map_coordinator, hass))
+        entities.append(
+            MammotionMowerPositionImage(
+                mower.map_coordinator, mower.reporting_coordinator, hass
+            )
         )
-        for mower in entry.runtime_data.mowers
-    )
+    async_add_entities(entities)
 
 
 class MammotionMapImage(MammotionBaseEntity, ImageEntity):
-    """Rasterized mowing-area map with live robot position and mow progress."""
+    """Static base map — geometry, dock, RTK.  No live mower layers."""
 
     _attr_translation_key = "map"
+    _attr_content_type = "image/png"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        map_coordinator: MammotionMapUpdateCoordinator,
+        hass: HomeAssistant,
+    ) -> None:
+        """Wire the map coordinator — no reporting feed needed."""
+        MammotionBaseEntity.__init__(self, map_coordinator, "map")
+        ImageEntity.__init__(self, hass)
+        self._map_coordinator = map_coordinator
+
+    async def async_added_to_hass(self) -> None:
+        """Seed ``image_last_updated`` from the coordinator's last render."""
+        await super().async_added_to_hass()
+        if self._map_coordinator.map_last_render is not None:
+            self._attr_image_last_updated = self._map_coordinator.map_last_render
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Bump timestamp whenever the coordinator produced a new base PNG."""
+        if self._map_coordinator.map_last_render is not None:
+            self._attr_image_last_updated = self._map_coordinator.map_last_render
+        super()._handle_coordinator_update()
+
+    async def async_image(self) -> bytes | None:
+        """Return the coordinator-cached base PNG, or placeholder pre-render."""
+        return self._map_coordinator.map_base_png_bytes or PLACEHOLDER_PNG
+
+
+class MammotionMowerPositionImage(MammotionBaseEntity, ImageEntity):
+    """Transparent overlay with the live robot marker + mowed track.
+
+    Sized and projected to match :class:`MammotionMapImage`, so stacking the
+    two in a picture-elements card produces the combined view without any
+    per-tick composite work on the event loop.
+    """
+
+    _attr_translation_key = "mower_position"
     _attr_content_type = "image/png"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -79,14 +125,13 @@ class MammotionMapImage(MammotionBaseEntity, ImageEntity):
         reporting_coordinator: MammotionReportUpdateCoordinator,
         hass: HomeAssistant,
     ) -> None:
-        """Wire both coordinators in — base via MammotionBaseEntity, reporting bolted on."""
-        MammotionBaseEntity.__init__(self, map_coordinator, "map")
+        """Wire both coordinators — map for bbox, reporting for position."""
+        MammotionBaseEntity.__init__(self, map_coordinator, "mower_position")
         ImageEntity.__init__(self, hass)
-        # Keep a narrowly-typed handle so Pyright sees the render-cache attrs
-        # without us fighting the CoordinatorEntity[] generic on the parent.
+        # Narrowly-typed handles so Pyright sees coordinator-specific attrs
+        # without fighting the CoordinatorEntity[] generic on the parent.
         self._map_coordinator = map_coordinator
         self._reporting_coordinator = reporting_coordinator
-        self._cached_base: bytes | None = None
         self._cached_output: bytes | None = None
         self._last_overlay_at: datetime.datetime | None = None
         # Rolling buffer of (x_east, y_north) points visited by the mower,
@@ -104,25 +149,17 @@ class MammotionMapImage(MammotionBaseEntity, ImageEntity):
                 self._handle_reporting_update
             )
         )
-        if self._map_coordinator.map_last_render is not None:
-            self._attr_image_last_updated = self._map_coordinator.map_last_render
-        self._pull_base()
         self._rebuild()
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Map coordinator ticked — maybe re-composite with a new base."""
-        changed = self._pull_base()
-        if changed:
-            # Position-only overlay would never refresh the base; force one.
-            self._rebuild(force=True)
-        else:
-            self._rebuild()
+        """Map coordinator ticked — bbox may have shifted, force a redraw."""
+        self._rebuild(force=True)
         super()._handle_coordinator_update()
 
     @callback
     def _handle_reporting_update(self) -> None:
-        """Reporting coordinator ticked — redraw overlay (throttled)."""
+        """Redraw overlay when the reporting coordinator ticks (throttled)."""
         now = dt_util.utcnow()
         if (
             self._last_overlay_at is not None
@@ -135,49 +172,33 @@ class MammotionMapImage(MammotionBaseEntity, ImageEntity):
     # -- internal helpers ----------------------------------------------------
 
     @callback
-    def _pull_base(self) -> bool:
-        """Mirror the coordinator's latest base PNG onto the entity.
-
-        Returns True when the cached base changed — caller can skip extra work
-        on no-ops.
-        """
-        base = self._map_coordinator.map_base_png_bytes
-        if base is not None and base is not self._cached_base:
-            self._cached_base = base
-            return True
-        return False
-
-    @callback
     def _rebuild(self, *, force: bool = False) -> None:
-        """Re-composite the cached output PNG from base + live overlays."""
-        base = self._cached_base
-        if base is None:
-            output = PLACEHOLDER_PNG
+        """Re-render the transparent overlay PNG."""
+        bbox = self._map_coordinator.map_base_bbox
+        if bbox is None:
+            # No base to align against — serve an empty transparent PNG so
+            # the entity stays usable when stacked over the placeholder.
+            output = EMPTY_OVERLAY_PNG
         else:
-            bbox = self._map_coordinator.map_base_bbox
             x, y, heading = self._current_position()
             self._update_position_history(x, y)
             dynamics = self._current_dynamics_line()
-            if bbox is None:
-                output = base
-            else:
-                try:
-                    output = compose_with_position(
-                        base,
-                        bbox,
-                        x,
-                        y,
-                        heading,
-                        dynamics,
-                        mowed_track=self._position_history,
-                    )
-                except Exception as err:  # noqa: BLE001 - never brick the entity
-                    _LOGGER.warning(
-                        "Map overlay composite failed for %s: %s",
-                        self.coordinator.device_name,
-                        err,
-                    )
-                    output = base
+            try:
+                output = render_overlay_png(
+                    bbox,
+                    x,
+                    y,
+                    heading,
+                    dynamics_line=dynamics,
+                    mowed_track=self._position_history,
+                )
+            except Exception as err:  # noqa: BLE001 - never brick the entity
+                _LOGGER.warning(
+                    "Mower-position overlay failed for %s: %s",
+                    self.coordinator.device_name,
+                    err,
+                )
+                return
 
         self._last_overlay_at = dt_util.utcnow()
         if force or output != self._cached_output:
@@ -318,5 +339,5 @@ class MammotionMapImage(MammotionBaseEntity, ImageEntity):
     # -- ImageEntity API ----------------------------------------------------
 
     async def async_image(self) -> bytes | None:
-        """Return cached bytes — never raises, serves placeholder pre-sync."""
-        return self._cached_output if self._cached_output is not None else PLACEHOLDER_PNG
+        """Return the cached overlay bytes — empty transparent pre-render."""
+        return self._cached_output if self._cached_output is not None else EMPTY_OVERLAY_PNG

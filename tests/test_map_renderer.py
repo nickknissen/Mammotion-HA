@@ -112,65 +112,65 @@ def test_placeholder_is_valid_png() -> None:
     assert len(renderer.PLACEHOLDER_PNG) > 100
 
 
-def test_compose_with_position_differs_from_base() -> None:
+def test_render_overlay_png_with_position_is_valid() -> None:
     hl = _sample_hashlist()
-    png, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
-    out = renderer.compose_with_position(
-        png, bbox, x=2.5, y=1.5, heading_deg=45.0, dynamics_line=None
+    _, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
+    out = renderer.render_overlay_png(
+        bbox, x=2.5, y=1.5, heading_deg=45.0, dynamics_line=None
     )
     assert out.startswith(renderer.PNG_MAGIC)
-    assert out != png
+    assert out != renderer.EMPTY_OVERLAY_PNG
 
 
-def test_compose_with_position_without_any_overlay_is_noop_ish() -> None:
-    """With no position and no dynamics_line the overlay adds nothing visible,
-    but the re-encode may still change bytes — assert only that it's a valid PNG."""
+def test_render_overlay_png_without_any_layers_is_transparent() -> None:
+    """No position, no dynamics_line, no track → output is a fully-transparent PNG."""
     hl = _sample_hashlist()
-    png, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
-    out = renderer.compose_with_position(
-        png, bbox, x=None, y=None, heading_deg=None, dynamics_line=None
+    _, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
+    out = renderer.render_overlay_png(
+        bbox, x=None, y=None, heading_deg=None, dynamics_line=None
     )
     assert out.startswith(renderer.PNG_MAGIC)
+    assert out == renderer.EMPTY_OVERLAY_PNG
 
 
-def test_compose_with_position_dynamics_line_changes_output() -> None:
+def test_render_overlay_png_dynamics_line_changes_output() -> None:
     hl = _sample_hashlist()
-    png, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
-    out_no_dyn = renderer.compose_with_position(
-        png, bbox, x=0.0, y=0.0, heading_deg=0.0, dynamics_line=None
+    _, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
+    out_no_dyn = renderer.render_overlay_png(
+        bbox, x=0.0, y=0.0, heading_deg=0.0, dynamics_line=None
     )
     dyn = _couples([(-4, -2), (4, -2), (4, -1), (-4, -1)])
-    out_with_dyn = renderer.compose_with_position(
-        png, bbox, x=0.0, y=0.0, heading_deg=0.0, dynamics_line=dyn
+    out_with_dyn = renderer.render_overlay_png(
+        bbox, x=0.0, y=0.0, heading_deg=0.0, dynamics_line=dyn
     )
     assert out_no_dyn != out_with_dyn
 
 
-def test_compose_with_position_mowed_track_changes_output() -> None:
+def test_render_overlay_png_mowed_track_changes_output() -> None:
     """Accumulated ``mowed_track`` should render a visible swathe."""
     hl = _sample_hashlist()
-    png, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
-    out_bare = renderer.compose_with_position(
-        png, bbox, x=0.0, y=0.0, heading_deg=0.0
+    _, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
+    out_bare = renderer.render_overlay_png(
+        bbox, x=0.0, y=0.0, heading_deg=0.0
     )
     track = [(-4, -2), (-2, -2), (0, -2), (2, -2), (4, -2)]
-    out_track = renderer.compose_with_position(
-        png, bbox, x=0.0, y=0.0, heading_deg=0.0, mowed_track=track
+    out_track = renderer.render_overlay_png(
+        bbox, x=0.0, y=0.0, heading_deg=0.0, mowed_track=track
     )
     assert out_track.startswith(renderer.PNG_MAGIC)
     assert out_bare != out_track
 
 
 def test_position_outside_bbox_is_clamped() -> None:
-    """Marker must stay on-canvas; dry-run the clamp helper + sanity-check compose."""
+    """Marker must stay on-canvas; dry-run the clamp helper + sanity-check overlay."""
     hl = _sample_hashlist()
-    png, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
+    _, bbox = renderer.render_base_png(hl, rtk_xy=(0, 0))
     cx, cy, clamped = renderer._clamp_to_bbox(999.0, 999.0, bbox)
     assert clamped is True
     assert cx <= bbox.xmax and cy <= bbox.ymax
-    # Composition must not raise for out-of-bbox positions.
-    out = renderer.compose_with_position(
-        png, bbox, x=999.0, y=999.0, heading_deg=0.0, dynamics_line=None
+    # Rendering must not raise for out-of-bbox positions.
+    out = renderer.render_overlay_png(
+        bbox, x=999.0, y=999.0, heading_deg=0.0, dynamics_line=None
     )
     assert out.startswith(renderer.PNG_MAGIC)
 

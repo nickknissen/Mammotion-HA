@@ -12,10 +12,12 @@ Intended use:
 
 * ``render_base_png(hash_list, rtk_xy, dock_xy, dock_rotation)`` — called
   off-loop from the map coordinator whenever the hash-keyed content changes.
-  Produces the static background.
-* ``compose_with_position(base, bbox, x, y, heading, dynamics_line)`` — called
-  on the event loop from the image entity on every reporting-coordinator tick.
-  Overlays the live robot marker plus the mow-progress polyline.
+  Produces the static background served by the "map" image entity.
+* ``render_overlay_png(bbox, x, y, heading, dynamics_line, mowed_track)`` —
+  called on every reporting-coordinator tick.  Produces a transparent,
+  same-sized PNG containing only the robot marker plus the mow-progress
+  polyline, intended to be stacked on top of the base via a Lovelace
+  picture-elements card.
 """
 
 from __future__ import annotations
@@ -148,6 +150,17 @@ def _load_placeholder() -> bytes:
 
 
 PLACEHOLDER_PNG: bytes = _load_placeholder()
+
+
+def _make_empty_overlay() -> bytes:
+    """Fully-transparent same-sized PNG used before a bbox exists."""
+    img = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+    buf = BytesIO()
+    img.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+EMPTY_OVERLAY_PNG: bytes = _make_empty_overlay()
 
 
 # ---------------------------------------------------------------------------
@@ -424,8 +437,7 @@ def _draw_marker(
 # ---------------------------------------------------------------------------
 
 
-def compose_with_position(
-    base_png: bytes,
+def render_overlay_png(
     bbox: BBox,
     x: float | None,
     y: float | None,
@@ -433,7 +445,11 @@ def compose_with_position(
     dynamics_line: list["CommDataCouple"] | None = None,
     mowed_track: list[tuple[float, float]] | None = None,
 ) -> bytes:
-    """Composite a robot marker (and optional mowed polyline) onto *base_png*.
+    """Render a transparent PNG containing only the live mower layers.
+
+    Same canvas size and projection as :func:`render_base_png` so the output
+    stacks pixel-perfect on top of the base in a Lovelace picture-elements
+    card.
 
     * ``(x, y, heading_deg)`` — live device position in the same local ENU
       frame as the base map.  Any may be ``None`` to suppress the marker
@@ -444,15 +460,13 @@ def compose_with_position(
       rolling buffer.  Drawn first, at mower-cutting-width so the visited
       area fills in like the Mammotion app.
 
-    Runs on the event loop — keep it cheap: one decode + one alpha-composite +
-    one re-encode.  For typical yard complexity (hundreds of dynamics points)
-    this is well under 50 ms on Pi 4 class hardware.
+    Runs on the event loop — cheap: no decode, one encode.  Skipping the base
+    decode is the main win over the old composite path.
     """
-    img = Image.open(BytesIO(base_png)).convert("RGBA")
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay, "RGBA")
+    img = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img, "RGBA")
 
-    project, scale = _projector(bbox, img.size)
+    project, scale = _projector(bbox, (CANVAS_W, CANVAS_H))
 
     # Mowed swathe (bottom-most overlay) — wide stroke at cutting width so
     # the visited area visibly fills in.
@@ -499,9 +513,8 @@ def compose_with_position(
                 width=2,
             )
 
-    out = Image.alpha_composite(img, overlay)
     buf = BytesIO()
-    out.save(buf, "PNG", optimize=True)
+    img.save(buf, "PNG", optimize=True)
     return buf.getvalue()
 
 
@@ -516,8 +529,9 @@ __all__ = [
     "BBox",
     "CANVAS_H",
     "CANVAS_W",
+    "EMPTY_OVERLAY_PNG",
     "PLACEHOLDER_PNG",
     "PNG_MAGIC",
-    "compose_with_position",
     "render_base_png",
+    "render_overlay_png",
 ]
