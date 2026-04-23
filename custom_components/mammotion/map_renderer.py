@@ -50,6 +50,12 @@ AREA_FILL = (0, 100, 0, 77)          # darkgreen @ 30%
 AREA_STROKE = (0, 128, 0, 204)       # green    @ 80%
 OBSTACLE_FILL = (255, 140, 0, 102)   # darkorange @ 40%
 OBSTACLE_STROKE = (255, 77, 0, 230)  # #FF4D00   @ 90%
+# Vision-detected zones (Luba 2 Vision / Pro) — separate from the user-drawn
+# obstacle polygons so they're visually distinguishable on the map.
+VISUAL_OBSTACLE_FILL = (200, 0, 0, 110)      # red @ 43% — vision-detected no-go
+VISUAL_OBSTACLE_STROKE = (139, 0, 0, 230)    # darkred
+VISUAL_SAFETY_FILL = (255, 235, 59, 90)      # amber @ 35% — vision safety buffer
+VISUAL_SAFETY_STROKE = (255, 193, 7, 220)    # amber darker
 DUMP_FILL = (255, 215, 0, 90)        # gold-ish fill
 DUMP_STROKE = (184, 134, 11, 200)    # darkgoldenrod
 PATH_OUTER = (255, 255, 255, 255)    # planned mow stripes
@@ -188,21 +194,23 @@ def _points_from_framelist(frame_list: "FrameList") -> list[tuple[float, float]]
 def _iter_hashlist_points(hash_list: "HashList") -> list[tuple[float, float]]:
     """Every (x, y) point known across the static HashList content."""
     acc: list[tuple[float, float]] = []
-    for frame_list in hash_list.area.values():
-        acc.extend(_points_from_framelist(frame_list))
-    for frame_list in hash_list.obstacle.values():
-        acc.extend(_points_from_framelist(frame_list))
-    for frame_list in hash_list.dump.values():
-        acc.extend(_points_from_framelist(frame_list))
-    for frame_list in hash_list.path.values():
-        acc.extend(_points_from_framelist(frame_list))
+    framelist_dicts = (
+        hash_list.area,
+        hash_list.obstacle,
+        hash_list.dump,
+        hash_list.path,
+        hash_list.line,
+        hash_list.visual_obstacle_zone,  # Luba 2 Vision / Pro
+        hash_list.visual_safety_zone,    # Luba 2 Vision / Pro
+    )
+    for framelist_dict in framelist_dicts:
+        for frame_list in framelist_dict.values():
+            acc.extend(_points_from_framelist(frame_list))
     # current_mow_path has a nested structure: dict[transaction_id, dict[frame_idx, MowPath]]
     for frames_by_tx in hash_list.current_mow_path.values():
         for mow_path in frames_by_tx.values():
             for packet in mow_path.path_packets:
                 acc.extend((p.x, p.y) for p in packet.data_couple)
-    for frame_list in hash_list.line.values():
-        acc.extend(_points_from_framelist(frame_list))
     return acc
 
 
@@ -319,6 +327,32 @@ def render_base_png(
                 pts,
                 fill=OBSTACLE_FILL,
                 outline=OBSTACLE_STROKE,
+                width=_m_to_px(scale, STROKE_OBSTACLE_M, MIN_STROKE_PX),
+            )
+
+    # Vision-detected safety buffer (amber) — drawn below the stricter
+    # vision-obstacle polygon so the two nest visibly when they overlap.
+    for hash_key in sorted(hash_list.visual_safety_zone.keys()):
+        pts = to_px(_points_from_framelist(hash_list.visual_safety_zone[hash_key]))
+        if len(pts) >= 3:
+            draw.polygon(
+                pts,
+                fill=VISUAL_SAFETY_FILL,
+                outline=VISUAL_SAFETY_STROKE,
+                width=_m_to_px(scale, STROKE_OBSTACLE_M, MIN_STROKE_PX),
+            )
+
+    # Vision-detected no-go zones (red) — Luba 2 Vision / Pro only.  These
+    # are the "excluded" polygons the mower auto-generates from camera
+    # input; the Android app shows them but the pymammotion GeoJSON card
+    # does not, so we render them here directly from HashList.
+    for hash_key in sorted(hash_list.visual_obstacle_zone.keys()):
+        pts = to_px(_points_from_framelist(hash_list.visual_obstacle_zone[hash_key]))
+        if len(pts) >= 3:
+            draw.polygon(
+                pts,
+                fill=VISUAL_OBSTACLE_FILL,
+                outline=VISUAL_OBSTACLE_STROKE,
                 width=_m_to_px(scale, STROKE_OBSTACLE_M, MIN_STROKE_PX),
             )
 

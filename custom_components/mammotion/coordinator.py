@@ -1465,6 +1465,8 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
                     hash_list.dump,
                     hash_list.path,
                     hash_list.current_mow_path,
+                    hash_list.visual_safety_zone,
+                    hash_list.visual_obstacle_zone,
                 )
             )
             if not has_content:
@@ -1533,7 +1535,7 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
         LOGGER.info(
             "Map rendered for %s: bbox=(%.2f,%.2f)→(%.2f,%.2f) width=%.1fm "
             "height=%.1fm dock=%s layers area=%d obstacle=%d dump=%d path=%d "
-            "mow_path=%d dynamics_line=%d png=%dB",
+            "mow_path=%d vis_safety=%d vis_obstacle=%d dynamics_line=%d png=%dB",
             self.device_name,
             bbox.xmin, bbox.ymin, bbox.xmax, bbox.ymax,
             bbox.width, bbox.height,
@@ -1543,6 +1545,8 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
             len(snapshot.dump),
             len(snapshot.path),
             len(snapshot.current_mow_path),
+            len(snapshot.visual_safety_zone),
+            len(snapshot.visual_obstacle_zone),
             len(snapshot.dynamics_line),
             len(png),
         )
@@ -1569,6 +1573,8 @@ class MammotionMapUpdateCoordinator(MammotionBaseUpdateCoordinator[MowerInfo]):
                 tuple(sorted(hash_list.dump.keys())),
                 tuple(sorted(hash_list.path.keys())),
                 tuple(sorted(hash_list.current_mow_path.keys())),
+                tuple(sorted(hash_list.visual_safety_zone.keys())),
+                tuple(sorted(hash_list.visual_obstacle_zone.keys())),
             )
         )
 
