@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import copy
 from datetime import time
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant.components.lawn_mower import (
@@ -29,6 +29,7 @@ from . import MammotionConfigEntry
 from .const import COMMAND_EXCEPTIONS, DOMAIN, LOGGER
 from .coordinator import MammotionReportUpdateCoordinator
 from .entity import MammotionBaseEntity
+from .geojson_utils import apply_geojson_offset
 from .models import MammotionMowerData
 
 SERVICE_START_MOWING = "start_mow"
@@ -117,7 +118,7 @@ def get_entity_attribute(
     # Check if the entity exists and has attributes
     if entity and attribute_name in entity.attributes:
         # Return the specific attribute
-        return entity.attributes.get(attribute_name, None)
+        return cast(str | None, entity.attributes.get(attribute_name))
     # Return None if the entity or attribute does not exist
     return None
 
@@ -189,21 +190,40 @@ async def async_setup_entry(
         if entity is None:
             LOGGER.error("Could not find entity %s", call.data[ATTR_ENTITY_ID])
             return {}
-        return entity.reporting_coordinator.data.map.generated_geojson
+        coordinator = entity.reporting_coordinator
+
+        # if coordinator.data.report_data.dev.sys_status == WorkMode.MODE_WORKING:
+        #     await coordinator.async_request_iot_sync_continuous()
+
+        return apply_geojson_offset(
+            coordinator.data.map.generated_geojson,
+            coordinator.map_offset_lat,
+            coordinator.map_offset_lon,
+        )
 
     async def handle_get_mow_path_geojson(call: ServiceCall) -> dict[str, Any]:
         entity = _get_mower_by_entity_id(call.data[ATTR_ENTITY_ID])
         if entity is None:
             LOGGER.error("Could not find entity %s", call.data[ATTR_ENTITY_ID])
             return {}
-        return entity.reporting_coordinator.data.map.generated_mow_path_geojson
+        coordinator = entity.reporting_coordinator
+        return apply_geojson_offset(
+            coordinator.data.map.generated_mow_path_geojson,
+            coordinator.map_offset_lat,
+            coordinator.map_offset_lon,
+        )
 
     async def handle_get_mow_progress_geojson(call: ServiceCall) -> dict[str, Any]:
         entity = _get_mower_by_entity_id(call.data[ATTR_ENTITY_ID])
         if entity is None:
             LOGGER.error("Could not find entity %s", call.data[ATTR_ENTITY_ID])
             return {}
-        return entity.reporting_coordinator.data.map.generated_mow_progress_geojson
+        coordinator = entity.reporting_coordinator
+        return apply_geojson_offset(
+            coordinator.data.map.generated_mow_progress_geojson,
+            coordinator.map_offset_lat,
+            coordinator.map_offset_lon,
+        )
 
     hass.services.async_register(
         DOMAIN,
@@ -225,7 +245,7 @@ async def async_setup_entry(
     )
 
 
-class MammotionLawnMowerEntity(MammotionBaseEntity, LawnMowerEntity):
+class MammotionLawnMowerEntity(MammotionBaseEntity, LawnMowerEntity):  # type: ignore[misc]
     """Representation of a Mammotion Lawn Mower."""
 
     _attr_supported_features = (
@@ -383,7 +403,7 @@ class MammotionLawnMowerEntity(MammotionBaseEntity, LawnMowerEntity):
                         await self.coordinator.async_send_and_wait(
                             "query_generate_route_information", "bidire_reqconver_path"
                         )
-                if mode == WorkMode.MODE_READY or mode == WorkMode.MODE_INITIALIZATION:
+                if mode in (WorkMode.MODE_READY, WorkMode.MODE_INITIALIZATION):
                     trans_key = "start_failed"
                     if breakpoint_info != 0:
                         await self.coordinator.async_send_and_wait(
@@ -394,10 +414,9 @@ class MammotionLawnMowerEntity(MammotionBaseEntity, LawnMowerEntity):
                         return
                     if await self.coordinator.async_plan_route(operational_settings):
                         if not plan_only:
-                            await self.coordinator.async_send_command("start_job")
-                        await self.coordinator.async_get_plan_route(
-                            operational_settings
-                        )
+                            await self.coordinator.async_send_and_wait(
+                                "start_job", "zone_start_precent_t"
+                            )
 
             except COMMAND_EXCEPTIONS as exc:
                 raise HomeAssistantError(

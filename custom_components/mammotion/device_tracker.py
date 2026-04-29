@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import math
+from typing import Any, cast
 
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
 from homeassistant.core import HomeAssistant
@@ -28,14 +29,14 @@ async def async_setup_entry(
         async_add_entities([MammotionTracker(mower.reporting_coordinator)])
 
 
-class MammotionTracker(MammotionBaseEntity, TrackerEntity, RestoreEntity):
+class MammotionTracker(MammotionBaseEntity, TrackerEntity, RestoreEntity):  # type: ignore[misc]
     """Mammotion device tracker."""
 
     _attr_force_update = False
     _attr_translation_key = "device_tracker"
     _attr_source_type = SourceType.GPS
 
-    def __init__(self, coordinator: MammotionBaseUpdateCoordinator) -> None:
+    def __init__(self, coordinator: MammotionBaseUpdateCoordinator[Any]) -> None:
         """Initialize the Tracker."""
         super().__init__(coordinator, f"{coordinator.device_name}_gps")
 
@@ -52,19 +53,33 @@ class MammotionTracker(MammotionBaseEntity, TrackerEntity, RestoreEntity):
 
     @property
     def latitude(self) -> float | None:
-        """Return latitude value of the device."""
-        return self.coordinator.manager.get_device_by_name(
+        """Return latitude value of the device, adjusted by map offset."""
+        lat = self.coordinator.manager.get_device_by_name(
             self.coordinator.device_name
         ).location.device.latitude
+        if lat is None:
+            return None
+        return cast(float, lat) + self.coordinator.map_offset_lat / 111_111.0
 
     @property
     def longitude(self) -> float | None:
-        """Return longitude value of the device."""
-        return self.coordinator.manager.get_device_by_name(
+        """Return longitude value of the device, adjusted by map offset."""
+        lon = self.coordinator.manager.get_device_by_name(
             self.coordinator.device_name
         ).location.device.longitude
+        if lon is None:
+            return None
+        lat = self.latitude
+        if lat is None:
+            return None
+        cos_lat = math.cos(math.radians(lat))
+        if cos_lat == 0:
+            return cast(float, lon)
+        return cast(float, lon) + self.coordinator.map_offset_lon / (
+            111_111.0 * cos_lat
+        )
 
     @property
     def battery_level(self) -> int | None:
         """Return the battery level of the device."""
-        return self.coordinator.data.report_data.dev.battery_val
+        return cast(int | None, self.coordinator.data.report_data.dev.battery_val)

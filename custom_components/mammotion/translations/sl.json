@@ -142,7 +142,8 @@
           "SIGNAL_NONE": "Brez",
           "SIGNAL_INIT": "Inicializacija",
           "SIGNAL_GOOD": "Dobro",
-          "SIGNAL_BAD": "Slabo"
+          "SIGNAL_BAD": "Slabo",
+          "SIGNAL_UNKNOWN": "Neznano"
         }
       },
       "activity_mode": {
@@ -352,12 +353,12 @@
         }
       },
       "bypass_mode": {
-        "name": "Način izmikanja oviram",
+        "name": "Zaznavanje ovir",
         "state": {
-          "direct_touch": "Polni dotik",
+          "direct_touch": "Izklopljeno",
           "slow_touch": "Počasni dotik",
           "less_touch": "Manj dotika",
-          "no_touch": "Brez dotika",
+          "no_touch": "Standard",
           "sensitive": "Občutljivo"
         }
       },
@@ -413,6 +414,12 @@
       },
       "toward_included_angle": {
         "name": "Kot prečkanja"
+      },
+      "map_offset_lat": {
+        "name": "Zamik zemljevida širina"
+      },
+      "map_offset_lon": {
+        "name": "Zamik zemljevida dolžina"
       }
     },
     "device_tracker": {

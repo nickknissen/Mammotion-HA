@@ -92,7 +92,7 @@ MAP_INTERVAL = timedelta(minutes=30)
 RTK_INTERVAL = timedelta(hours=5)
 
 
-class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
+class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):  # type: ignore[misc]
     """Mammotion DataUpdateCoordinator."""
 
     def __init__(
@@ -135,11 +135,13 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
             _user_account = 0
         self.commands = MammotionCommand(device.device_name, _user_account)
         self._subscriptions: list[Subscription] = []
+        self.map_offset_lat: float = 0.0
+        self.map_offset_lon: float = 0.0
 
         device = self.manager.get_device_by_name(self.device_name)
 
         if self.data is None:
-            self.data = device
+            self.data = device  # type: ignore[assignment]
 
     @abstractmethod
     def get_coordinator_data(self, device: MowingDevice) -> DataT:
@@ -239,26 +241,11 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
         if device is None:
             return
         device.enabled = enabled
-        handle = self.manager.mower(self.device_name)
-        if handle is None:
-            return
         if enabled:
             self.update_failures = 0
             if not device.online:
                 device.online = True
-            for t_type in (
-                TransportType.CLOUD_ALIYUN,
-                TransportType.CLOUD_MAMMOTION,
-                TransportType.BLE,
-            ):
-                await handle.connect_transport(t_type)
-        else:
-            for t_type in (
-                TransportType.CLOUD_ALIYUN,
-                TransportType.CLOUD_MAMMOTION,
-                TransportType.BLE,
-            ):
-                await handle.disconnect_transport(t_type)
+        await self.manager.set_scheduled_updates(self.device_name, enabled=enabled)
 
     def is_online(self) -> bool:
         """Return True if the device currently has an active transport connection."""
@@ -271,7 +258,7 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
         if handle.has_transport(TransportType.BLE):
             if handle.is_transport_connected(TransportType.BLE):
                 return True
-        return not handle.availability.mqtt_reported_offline
+        return bool(not handle.availability.mqtt_reported_offline)
 
     async def async_refresh_login(self, exc: Exception | None = None) -> None:
         """Refresh login credentials asynchronously.
@@ -445,9 +432,7 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
             ) from exc
         return False
 
-    async def async_send_bluetooth_command(
-        self, key: str, **kwargs: Any
-    ) -> bool | None:
+    async def async_send_bluetooth_command(self, key: str, **kwargs: Any) -> None:
         """Send command via BLE transport."""
         await self.async_send_command(key, prefer_ble=True, **kwargs)
 
@@ -557,10 +542,6 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
             unable_start_time=_to_minutes(start_time),
         )
 
-    async def async_set_blade_warning_time(self, hours: int) -> None:
-        """Set blade warning time in hours."""
-        await self.async_send_command("set_blade_warning_time", hours=hours)
-
     async def async_reset_blade_time(self) -> None:
         """Reset blade used time."""
         await self.async_send_command("reset_blade_time")
@@ -620,7 +601,7 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
         await self.async_send_command("reset_blade_time")
 
     async def async_set_blade_warning_time(self, hours: int) -> None:
-        """Set blade replacement warning threshold in hours."""
+        """Set the blade warning time in hours."""
         await self.async_send_command("set_blade_warning_time", hours=hours)
 
     async def async_set_speed(self, speed: float) -> None:
@@ -757,7 +738,7 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
         )
 
     async def async_request_iot_sync_continuous(
-        self, stop: bool = False, period=1000, no_change_period=4000
+        self, stop: bool = False, period: int = 1000, no_change_period: int = 4000
     ) -> None:
         """Sync specific info from device."""
         await self.async_send_command(
@@ -797,7 +778,7 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
         """Send command and update."""
         svg_message = SvgMessage()
 
-        return await self.async_send_command("send_svg_data", svg_message=svg_message)
+        await self.async_send_command("send_svg_data", svg_message=svg_message)
 
     def generate_route_information(
         self, operation_settings: OperationSettings
@@ -946,6 +927,10 @@ class MammotionBaseUpdateCoordinator[DataT](DataUpdateCoordinator[DataT]):
         """Get map data from the device."""
         store = Store(self.hass, version=1, minor_version=2, key=self.device_name)
         await store.async_save(data.to_dict())
+
+    async def remove_saved_data(self):
+        store = Store(self.hass, version=1, minor_version=2, key=self.device_name)
+        await store.async_remove()
 
     async def _async_update_data(self) -> DataT | None:
         """Update data from the device."""
@@ -1164,7 +1149,7 @@ class MammotionReportUpdateCoordinator(MammotionBaseUpdateCoordinator[MowingDevi
         if device := self.manager.get_device_by_name(self.device_name):
             self.async_set_updated_data(device)
 
-    async def _async_setup(self):
+    async def _async_setup(self) -> None:
         await super()._async_setup()
         await self.async_request_iot_sync()
 
@@ -1660,7 +1645,7 @@ class MammotionDeviceErrorUpdateCoordinator(
     def get_error_code(self, number: int) -> int:
         """Get error code from an error code list."""
         try:
-            return abs(next(iter(self.data.errors.err_code_list)))
+            return int(abs(next(iter(self.data.errors.err_code_list))))
         except StopIteration:
             return 0
 
@@ -1859,7 +1844,7 @@ class MammotionRTKCoordinator(MammotionBaseUpdateCoordinator[RTKBaseStationDevic
         self._subscriptions.clear()
         await super().async_shutdown()
 
-    async def _async_update_notification(self):
+    async def _async_update_notification(self, res: tuple[str, Any | None]) -> None:
         """Handle update notifications for the RTK device."""
         if rtk_device := self.manager.rtk_device(self.device_name):
             self.async_set_updated_data(

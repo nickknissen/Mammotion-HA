@@ -142,7 +142,8 @@
           "SIGNAL_NONE": "Ingen",
           "SIGNAL_INIT": "Initialiserer",
           "SIGNAL_GOOD": "God",
-          "SIGNAL_BAD": "Dårlig"
+          "SIGNAL_BAD": "Dårlig",
+          "SIGNAL_UNKNOWN": "Ukendt"
         }
       },
       "activity_mode": {
@@ -352,12 +353,12 @@
         }
       },
       "bypass_mode": {
-        "name": "Forhindringsundgåelsestilstand",
+        "name": "Forhindringsdetektion",
         "state": {
-          "direct_touch": "Direkte berøring",
+          "direct_touch": "Fra",
           "slow_touch": "Langsom berøring",
           "less_touch": "Mindre berøring",
-          "no_touch": "Ingen berøring",
+          "no_touch": "Standard",
           "sensitive": "Følsom"
         }
       },
@@ -413,6 +414,12 @@
       },
       "toward_included_angle": {
         "name": "Krydsningsvinkel"
+      },
+      "map_offset_lat": {
+        "name": "Kortforskydning breddegrad"
+      },
+      "map_offset_lon": {
+        "name": "Kortforskydning længdegrad"
       }
     },
     "device_tracker": {

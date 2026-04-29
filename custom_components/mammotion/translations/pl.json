@@ -142,7 +142,8 @@
           "SIGNAL_NONE": "Brak",
           "SIGNAL_INIT": "Inicjalizacja",
           "SIGNAL_GOOD": "Dobry",
-          "SIGNAL_BAD": "Zły"
+          "SIGNAL_BAD": "Zły",
+          "SIGNAL_UNKNOWN": "Nieznany"
         }
       },
       "activity_mode": {
@@ -352,12 +353,12 @@
         }
       },
       "bypass_mode": {
-        "name": "Tryb wykrywania przeszkód",
+        "name": "Wykrywanie przeszkód",
         "state": {
-          "direct_touch": "Bezpośredne dotknięcie",
+          "direct_touch": "Wyłączone",
           "slow_touch": "Wolne dotknięcie",
           "less_touch": "Mniej dotyku",
-          "no_touch": "Brak dotyku",
+          "no_touch": "Standard",
           "sensitive": "Czułe"
         }
       },
@@ -413,6 +414,12 @@
       },
       "toward_included_angle": {
         "name": "Kąt skrzyżowania"
+      },
+      "map_offset_lat": {
+        "name": "Przesunięcie mapy szerokość"
+      },
+      "map_offset_lon": {
+        "name": "Przesunięcie mapy długość"
       }
     },
     "device_tracker": {

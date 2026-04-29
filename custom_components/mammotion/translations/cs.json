@@ -142,7 +142,8 @@
           "SIGNAL_NONE": "Žádný",
           "SIGNAL_INIT": "Inicializace",
           "SIGNAL_GOOD": "Dobrý",
-          "SIGNAL_BAD": "Špatný"
+          "SIGNAL_BAD": "Špatný",
+          "SIGNAL_UNKNOWN": "Neznámý"
         }
       },
       "activity_mode": {
@@ -352,12 +353,12 @@
         }
       },
       "bypass_mode": {
-        "name": "Režim vyhýbání se překážkám",
+        "name": "Detekce překážek",
         "state": {
-          "direct_touch": "Přímý dotek",
+          "direct_touch": "Vypnuto",
           "slow_touch": "Pomalý dotek",
           "less_touch": "Méně dotyků",
-          "no_touch": "Bez dotyku",
+          "no_touch": "Standard",
           "sensitive": "Citlivý"
         }
       },
@@ -413,6 +414,12 @@
       },
       "toward_included_angle": {
         "name": "Úhel křížení"
+      },
+      "map_offset_lat": {
+        "name": "Posun mapy – zeměpisná šířka"
+      },
+      "map_offset_lon": {
+        "name": "Posun mapy – zeměpisná délka"
       }
     },
     "device_tracker": {

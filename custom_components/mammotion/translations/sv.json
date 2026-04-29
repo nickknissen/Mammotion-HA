@@ -142,7 +142,8 @@
           "SIGNAL_NONE": "Ingen",
           "SIGNAL_INIT": "Initialiserar",
           "SIGNAL_GOOD": "Bra",
-          "SIGNAL_BAD": "Dålig"
+          "SIGNAL_BAD": "Dålig",
+          "SIGNAL_UNKNOWN": "Okänd"
         }
       },
       "activity_mode": {
@@ -352,12 +353,12 @@
         }
       },
       "bypass_mode": {
-        "name": "Val för att undvika hinder",
+        "name": "Hinderdetektering",
         "state": {
-          "direct_touch": "Direkt kontakt",
+          "direct_touch": "Av",
           "slow_touch": "Långsam kontakt",
           "less_touch": "Mindre kontakt",
-          "no_touch": "Ingen kontakt",
+          "no_touch": "Standard",
           "sensitive": "Känslig"
         }
       },
@@ -413,6 +414,12 @@
       },
       "toward_included_angle": {
         "name": "Korsningsvinkel"
+      },
+      "map_offset_lat": {
+        "name": "Kartoffset latitud"
+      },
+      "map_offset_lon": {
+        "name": "Kartoffset longitud"
       }
     },
     "device_tracker": {
